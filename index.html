@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Endless Driver</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="score-display">Score: 100</div>
+    <div id="game-over" style="display: none;">
+        <h1>Game Over!</h1>
+        <button id="restart-button">Restart</button>
+    </div>
+    <canvas id="game-canvas"></canvas>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.163.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script type="module" src="game.js"></script>
+</body>
+</html>
