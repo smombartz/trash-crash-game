@@ -3,14 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trash Crash - The Game</title>
+    <title>Trash Crash</title>
     <link rel="stylesheet" href="style.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div id="score-display">Score: 100</div>
-    <div id="game-over" style="display: none;">
-        <h1>Game Over!</h1>
-        <button id="restart-button">Restart</button>
+    <div id="ui-container" style="display: none;">
+        <div class="counter-display">
+            <span id="trash-counter">Trash Cans: 0</span>
+            <span id="mailbox-counter">Mailboxes: 0</span>
+        </div>
+        <div id="score-display">Score: 100</div>
+        <button id="settings-button">⚙️ Settings</button>
+    </div>
+
+    <div id="start-screen">
+        <h1 id="start-title">Trash Crash</h1>
+        <button id="start-button">Let's Crash!</button>
+    </div>
+
+    <div id="settings-modal" style="display: none;">
+        <h2>Game Settings</h2>
+        <div class="settings-grid">
+            <label for="setting-player-speed">Player Speed:</label>
+            <input type="number" id="setting-player-speed" step="0.1" min="0.1">
+
+            <label for="setting-turn-speed">Turn Speed:</label>
+            <input type="number" id="setting-turn-speed" step="0.01" min="0.01">
+
+            <label for="setting-traffic-speed">Traffic Speed:</label>
+            <input type="number" id="setting-traffic-speed" step="0.1" min="0">
+
+            <label for="setting-num-traffic">Traffic Cars:</label>
+            <input type="number" id="setting-num-traffic" step="1" min="0">
+
+            <label for="setting-num-destructibles">Destructibles:</label>
+            <input type="number" id="setting-num-destructibles" step="10" min="0">
+
+            <label for="setting-num-houses">Houses:</label>
+            <input type="number" id="setting-num-houses" step="10" min="0">
+
+            <label for="setting-num-trees">Trees:</label>
+            <input type="number" id="setting-num-trees" step="10" min="0">
+        </div>
+        <div class="settings-buttons">
+            <button id="settings-save-button">Save & Restart</button>
+            <button id="settings-cancel-button">Cancel</button>
+        </div>
     </div>
     <canvas id="game-canvas"></canvas>
 
