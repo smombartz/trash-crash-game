@@ -6,9 +6,11 @@ let playerCar, playerCarBoundingBox; // playerCar will now be a Group
 let clock = new THREE.Clock();
 let keys = {}; // Keyboard state
 let score = 100; // Start score at 100
-let gameState = 'running'; // 'running', 'gameOver'
+let gameState = 'intro'; // Initial state: 'intro', 'running', 'gameOver', 'win'
+let trashCansRemaining = 0; // Counter for win condition
+let mailboxesRemaining = 0; // Counter for display
 
-// --- Game Constants ---
+// --- Default Game Constants (Used for initial load & reset if needed) ---
 const ROAD_WIDTH = 10; // Width of the driving lane
 const SIDEWALK_WIDTH = 3; // Width of the sidewalk on EACH side
 const TOTAL_ROAD_WIDTH = ROAD_WIDTH + 2 * SIDEWALK_WIDTH; // Full width including sidewalks
@@ -20,18 +22,52 @@ const HALF_GRID_SPAN = (GRID_SIZE - 1) / 2 * BLOCK_SIZE; // Distance from center
 const WORLD_SIZE_X = HALF_GRID_SPAN * 2 + TOTAL_ROAD_WIDTH + BLOCK_SIZE * 1.5; // Increased margin
 const WORLD_SIZE_Z = HALF_GRID_SPAN * 2 + TOTAL_ROAD_WIDTH + BLOCK_SIZE * 1.5; // Increased margin
 
-// --- UPDATED CONSTANTS ---
-const PLAYER_SPEED = 0.3;
-const TURN_SPEED = 0.03;
-const SCORE_HIT_OBJECT = 15; // Points for hitting trash can OR mailbox
-const SCORE_PENALTY_TRAFFIC = -20;
-const SCORE_PENALTY_OFFROAD_PER_SEC = -10;
-const NUM_DESTRUCTIBLES = 200; // Total number of trash cans + mailboxes
-const NUM_TRAFFIC_CARS = 40; // Adjusted for grid size
-const TRAFFIC_SPEED = 0.2;
-const HOUSE_COUNT = 400; // Adjusted for grid size
-const TREE_COUNT = 1000; // Adjusted for grid size
-// --- END UPDATED CONSTANTS ---
+const DEFAULT_PLAYER_SPEED = 0.3;
+const DEFAULT_TURN_SPEED = 0.03;
+const DEFAULT_SCORE_HIT_OBJECT = 15; // Points for hitting trash can OR mailbox
+const DEFAULT_SCORE_PENALTY_TRAFFIC = -20;
+const DEFAULT_SCORE_PENALTY_OFFROAD_PER_SEC = -10;
+const DEFAULT_NUM_DESTRUCTIBLES = 200; // Total number of trash cans + mailboxes
+const DEFAULT_NUM_TRAFFIC_CARS = 60; // Adjusted for grid size
+const DEFAULT_TRAFFIC_SPEED = 0.2;
+const DEFAULT_HOUSE_COUNT = 400; // Adjusted for grid size
+const DEFAULT_TREE_COUNT = 1000; // Adjusted for grid size
+
+// --- Current Game Settings (Mutable) ---
+let currentGameSettings = {
+    playerSpeed: DEFAULT_PLAYER_SPEED,
+    turnSpeed: DEFAULT_TURN_SPEED,
+    scoreHitObject: DEFAULT_SCORE_HIT_OBJECT,
+    scorePenaltyTraffic: DEFAULT_SCORE_PENALTY_TRAFFIC,
+    scorePenaltyOffroadPerSec: DEFAULT_SCORE_PENALTY_OFFROAD_PER_SEC,
+    numDestructibles: DEFAULT_NUM_DESTRUCTIBLES,
+    numTrafficCars: DEFAULT_NUM_TRAFFIC_CARS,
+    trafficSpeed: DEFAULT_TRAFFIC_SPEED,
+    houseCount: DEFAULT_HOUSE_COUNT,
+    treeCount: DEFAULT_TREE_COUNT
+};
+
+// --- House Color Palette ---
+const houseColorPairs = [
+    { house: '#DFD3C6', roof: '#5C5E59' },
+    { house: '#DBB883', roof: '#5E706A' },
+    { house: '#9B634C', roof: '#A44A4A' },
+    { house: '#B8B8B4', roof: '#000000' },
+    { house: '#F2DFB4', roof: '#9D6055' },
+    { house: '#E4D8B2', roof: '#693A1E' },
+    { house: '#506D74', roof: '#BCB09E' },
+    { house: '#F0EEE7', roof: '#45423F' },
+    { house: '#E8C8C8', roof: '#5C6167' },
+    { house: '#F2C968', roof: '#656868' },
+    { house: '#2E4057', roof: '#C1440E' },
+    { house: '#8A0303', roof: '#F4EBD0' },
+    { house: '#3B3B98', roof: '#FF9F1C' },
+    { house: '#006E51', roof: '#F7C59F' },
+    { house: '#70163C', roof: '#D3D3D3' },
+    { house: '#FF6F61', roof: '#2C2C2C' },
+    { house: '#D7263D', roof: '#FFD23F' },
+    { house: '#4A1C40', roof: '#A29BFE' }
+];
 
 
 // --- Game Objects ---
@@ -45,15 +81,34 @@ let lights = {};
 
 
 // --- UI Elements ---
+const uiContainer = document.getElementById('ui-container');
 const scoreDisplay = document.getElementById('score-display');
-const gameOverDisplay = document.getElementById('game-over');
-const restartButton = document.getElementById('restart-button');
+const trashCounterDisplay = document.getElementById('trash-counter'); // Counter element
+const mailboxCounterDisplay = document.getElementById('mailbox-counter'); // Counter element
+const startScreen = document.getElementById('start-screen');
+const startTitle = document.getElementById('start-title');
+const startButton = document.getElementById('start-button');
+
+// --- Settings UI Elements ---
+const settingsButton = document.getElementById('settings-button');
+const settingsModal = document.getElementById('settings-modal');
+const settingsSaveButton = document.getElementById('settings-save-button');
+const settingsCancelButton = document.getElementById('settings-cancel-button');
+// --- Settings Input Fields ---
+const inputPlayerSpeed = document.getElementById('setting-player-speed');
+const inputTurnSpeed = document.getElementById('setting-turn-speed');
+const inputTrafficSpeed = document.getElementById('setting-traffic-speed');
+const inputNumTraffic = document.getElementById('setting-num-traffic');
+const inputNumDestructibles = document.getElementById('setting-num-destructibles');
+const inputNumHouses = document.getElementById('setting-num-houses');
+const inputNumTrees = document.getElementById('setting-num-trees');
+
 
 // --- Materials (Define some reused materials with more visual interest) ---
 const drivingLaneMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 }); // Darker grey for driving lane
 const sidewalkMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.9 }); // Lighter grey for sidewalk base
 const trashCanMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.3, roughness: 0.6 }); // Grey trash cans
-const mailboxBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x3333dd, metalness: 0.4, roughness: 0.5 }); // Blue mailbox body
+const mailboxBodyMaterial = new THREE.MeshStandardMaterial({ color: 0x3333dd, metalness: 0.4, roughness: 0.5 }); // Default Blue mailbox body (will be cloned)
 const mailboxPostMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.6, roughness: 0.4 }); // Dark grey post
 const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7, side: THREE.DoubleSide }); // Dark grey for wheels
 const playerCarBodyMaterial = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.7, roughness: 0.3 }); // Silver player car
@@ -71,6 +126,9 @@ const wheelGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16); // Radius, 
 // --- Initialization ---
 function init() {
     console.log("Initializing game...");
+    gameState = 'intro'; // Start in intro state
+    score = 100; // Reset score for fresh start
+
     // Scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb); // Sky blue
@@ -79,9 +137,8 @@ function init() {
 
     // Camera
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    // Adjust starting camera position for the new layout
-    camera.position.set(0, 30, HALF_GRID_SPAN + 40); // Move camera back slightly more
-    // camera.lookAt(0, 0, 0); // Will look at car later
+    // Initial camera position for intro screen
+    setupIntroCamera();
 
     // Renderer
     renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: true });
@@ -114,28 +171,43 @@ function init() {
     // const shadowHelper = new THREE.CameraHelper(lights.directional.shadow.camera); // DEBUG
     // scene.add(shadowHelper); // DEBUG
 
-    // Create Environment
-    createGround();      // Adjust ground size
-    createRoadNetwork(); // *** Creates roads WITH sidewalks ***
-    createHouses();      // Creates multiple houses
-    createTrees();       // Creates multiple trees
+    // Create Player Car (but position for intro)
+    createPlayerCar();
+    if (playerCar) {
+        playerCar.position.set(0, 1, 0); // Center for intro display
+        playerCar.rotation.y = Math.PI * 0.8; // Start rotated slightly
+    }
 
-    // Create Player Car (Now a Group)
-    createPlayerCar(); // Adjust starting position
 
-    // Create Destructible Objects (Trash Cans and Mailboxes)
-    createDestructibles(); // Placement logic updated for sidewalks
+    // Initially hide game UI, show start screen
+    uiContainer.style.display = 'none';
+    startScreen.style.display = 'flex'; // Show start screen
+    startTitle.innerText = "Trash Crash";
+    startButton.innerText = "Let's Crash!";
 
-    // Create AI Traffic (Now Groups)
-    createTraffic(); // Uses driving lane dimensions
 
-    // Event Listeners
+    // Event Listeners (Setup once)
     setupEventListeners();
 
     // Start Animation Loop
     animate();
-    console.log("Initialization complete.");
+    console.log("Initialization complete, waiting for start.");
 }
+
+// --- Camera Setup ---
+function setupIntroCamera() {
+    camera.position.set(0, 4, 10); // Position to view the rotating car
+    camera.lookAt(0, 1, 0);    // Look at the car's approximate center
+}
+
+function setupGameCamera() {
+    // Initial position for gameplay (will be updated by updateCamera)
+     playerCar.position.set(0, 0.5, BLOCK_SIZE); // Place on road
+     playerCar.rotation.y = 0; // Face South
+     playerCarBoundingBox.setFromObject(playerCar); // Update box after moving
+     updateCamera(); // Set initial game camera position based on car
+}
+
 
 // --- Object Creation Functions ---
 
@@ -161,18 +233,16 @@ function createRoadSegment(drivingLaneWidth, drivingLaneLength, position, rotati
     const totalLength = drivingLaneLength; // Length remains the same
 
     // 1. Create Sidewalk Base (slightly lower)
-    // Geometry dimensions (width is X, length is Z BEFORE rotation)
-    const baseGeometry = new THREE.BoxGeometry(totalWidth, 0.08, totalLength); // Slightly thicker base
+    const baseGeometry = new THREE.BoxGeometry(totalWidth, 0.08, totalLength);
     const baseMesh = new THREE.Mesh(baseGeometry, sidewalkMaterial);
-    baseMesh.position.y = -0.01; // Position slightly below driving lane
+    baseMesh.position.y = -0.01;
     baseMesh.receiveShadow = true;
     roadGroup.add(baseMesh);
 
     // 2. Create Driving Lane (on top)
-    // Geometry dimensions (width is X, length is Z BEFORE rotation)
     const drivingLaneGeometry = new THREE.BoxGeometry(drivingLaneWidth, 0.1, drivingLaneLength);
     const drivingLaneMesh = new THREE.Mesh(drivingLaneGeometry, drivingLaneMaterial);
-    drivingLaneMesh.position.y = 0; // Position at y=0
+    drivingLaneMesh.position.y = 0;
     drivingLaneMesh.receiveShadow = true;
     roadGroup.add(drivingLaneMesh);
 
@@ -182,28 +252,26 @@ function createRoadSegment(drivingLaneWidth, drivingLaneLength, position, rotati
 
     scene.add(roadGroup);
 
-    // Store segment data including calculated *visual* dimensions for driving lane and total area
+    // Store segment data
     let visualDrivingWidth, visualDrivingLength;
     let visualTotalWidth, visualTotalLength;
 
-    if (Math.abs(rotationY) < 0.1) { // Vertical road (Rot 0)
+    if (Math.abs(rotationY) < 0.1) { // Vertical road
         visualDrivingWidth = drivingLaneWidth;
         visualDrivingLength = drivingLaneLength;
         visualTotalWidth = totalWidth;
         visualTotalLength = totalLength;
-    } else { // Horizontal road (Rot PI/2)
-        visualDrivingWidth = drivingLaneLength; // Visual width (X) is geometry Z length
-        visualDrivingLength = drivingLaneWidth;  // Visual length (Z) is geometry X width
-        visualTotalWidth = totalLength;         // Visual total width (X) is base geometry Z length
-        visualTotalLength = totalWidth;          // Visual total length (Z) is base geometry X width
+    } else { // Horizontal road
+        visualDrivingWidth = drivingLaneLength;
+        visualDrivingLength = drivingLaneWidth;
+        visualTotalWidth = totalLength;
+        visualTotalLength = totalWidth;
     }
 
     roadSegments.push({
-        group: roadGroup, // Store reference to the group if needed
-        // Driving Lane dimensions (for AI traffic bounds)
+        group: roadGroup,
         width: visualDrivingWidth,
         length: visualDrivingLength,
-        // Total dimensions including sidewalks (for player off-road check)
         totalWidth: visualTotalWidth,
         totalLength: visualTotalLength,
         position: position.clone(),
@@ -215,56 +283,51 @@ function createRoadSegment(drivingLaneWidth, drivingLaneLength, position, rotati
 
 // *** ROAD LAYOUT FUNCTION for 5x5 Grid ***
 function createRoadNetwork() {
-    roadSegments = []; // Clear existing
+    // Clear existing road groups from scene and array
+    roadSegments.forEach(segment => scene.remove(segment.group));
+    roadSegments = [];
+
     const roadY = 0;
-    const drivingLaneW = ROAD_WIDTH; // Use driving lane width for geometry
-    // Make roads long enough to span the grid area plus some extra
-    const drivingLaneL = Math.max(WORLD_SIZE_X, WORLD_SIZE_Z) * 0.9; // Length based on world size
+    const drivingLaneW = ROAD_WIDTH;
+    const drivingLaneL = Math.max(WORLD_SIZE_X, WORLD_SIZE_Z) * 0.9;
 
     console.log("Creating 5x5 road grid network with sidewalks...");
+    const startOffset = -HALF_GRID_SPAN;
 
-    // Calculate starting position for the grid (center-relative)
-    const startOffset = -HALF_GRID_SPAN; // e.g., -2 * BLOCK_SIZE for 5x5
-
-    // Create N-S Roads (Vertical)
+    // Create N-S Roads
     for (let i = 0; i < GRID_SIZE; i++) {
         const xPos = startOffset + i * BLOCK_SIZE;
-        // Vertical roads: Geometry width = drivingLaneW, Geometry length = drivingLaneL
         createRoadSegment(drivingLaneW, drivingLaneL, new THREE.Vector3(xPos, roadY, 0), 0);
     }
-
-    // Create E-W Roads (Horizontal)
+    // Create E-W Roads
     for (let i = 0; i < GRID_SIZE; i++) {
         const zPos = startOffset + i * BLOCK_SIZE;
-        // Horizontal roads: Geometry width = drivingLaneW, Geometry length = drivingLaneL
         createRoadSegment(drivingLaneW, drivingLaneL, new THREE.Vector3(0, roadY, zPos), Math.PI / 2);
     }
-
     console.log(`Created ${roadSegments.length} road segments.`);
 }
 
-// Creates a single house mesh group
+// Creates a single house mesh group with randomized colors
 function createHouse(position, rotationY) {
     const baseWidth = 5 + Math.random() * 8;
     const baseDepth = 5 + Math.random() * 8;
     const baseHeight = 4 + Math.random() * 5;
     const roofHeight = baseHeight * (0.5 + Math.random() * 0.3);
 
-    // Use slightly varied colors and material properties
-    const baseColor = new THREE.Color(0xaaaaaa).lerp(new THREE.Color(0xdddddd), Math.random());
-    const roofColor = new THREE.Color(0x8B4513).lerp(new THREE.Color(0x666666), Math.random());
+    // Randomly select color pair
+    const colorPair = houseColorPairs[Math.floor(Math.random() * houseColorPairs.length)];
 
     const houseGroup = new THREE.Group();
 
     // Base
     const baseGeometry = new THREE.BoxGeometry(baseWidth, baseHeight, baseDepth);
     const baseMaterial = new THREE.MeshStandardMaterial({
-        color: baseColor,
-        roughness: 0.8 + Math.random() * 0.2, // Add some variation
+        color: new THREE.Color(colorPair.house), // Use selected house color
+        roughness: 0.8 + Math.random() * 0.2,
         metalness: 0.1
      });
     const baseMesh = new THREE.Mesh(baseGeometry, baseMaterial);
-    baseMesh.name = "house_base"; // Name for easy reference
+    baseMesh.name = "house_base";
     baseMesh.position.y = baseHeight / 2;
     baseMesh.castShadow = true;
     baseMesh.receiveShadow = true;
@@ -274,7 +337,7 @@ function createHouse(position, rotationY) {
     const roofRadius = Math.sqrt(baseWidth*baseWidth + baseDepth*baseDepth) / 2 * 1.1;
     const roofGeometry = new THREE.ConeGeometry(roofRadius, roofHeight, 4);
     const roofMaterial = new THREE.MeshStandardMaterial({
-        color: roofColor,
+        color: new THREE.Color(colorPair.roof), // Use selected roof color
         roughness: 0.7 + Math.random() * 0.2,
         metalness: 0.0
     });
@@ -285,66 +348,50 @@ function createHouse(position, rotationY) {
     roofMesh.receiveShadow = true;
     houseGroup.add(roofMesh);
 
-    // Position and rotate the whole group
+    // Position/Rotate Group
     houseGroup.position.copy(position);
     houseGroup.rotation.y = rotationY;
     houseGroup.position.y = 0;
 
-    // Add userData for collision
-    houseGroup.userData = {
-        type: 'house', // Identify object type
-        // *** Use bounding box of the BASE MESH for tighter collision ***
-        boundingBox: new THREE.Box3().setFromObject(baseMesh)
-    };
-    // Update bounding box after positioning the parent group
-    houseGroup.updateMatrixWorld(true); // Ensure world matrix is updated
-    // Recalculate box based on the base mesh's world matrix
-    houseGroup.userData.boundingBox.setFromObject(baseMesh, true); // Use precise=true if available
-
+    // UserData
+    houseGroup.userData = { type: 'house', boundingBox: new THREE.Box3().setFromObject(baseMesh) };
+    houseGroup.updateMatrixWorld(true);
+    houseGroup.userData.boundingBox.setFromObject(baseMesh, true);
 
     scene.add(houseGroup);
     return houseGroup;
 }
 
-// Creates multiple houses in valid locations (avoids roads+sidewalks)
+// Creates multiple houses
 function createHouses() {
-    houses = []; // Clear existing
-    console.log(`Attempting to place ${HOUSE_COUNT} houses...`);
+    // Clear existing objects from scene and array
+    houses.forEach(house => scene.remove(house));
+    houses = [];
+
+    console.log(`Attempting to place ${currentGameSettings.houseCount} houses...`);
     let placedCount = 0;
-    for (let i = 0; i < HOUSE_COUNT; i++) {
+    for (let i = 0; i < currentGameSettings.houseCount; i++) {
         let placed = false;
         let attempts = 0;
         while (!placed && attempts < 30) {
             attempts++;
-            // Place within the defined world area
             const x = (Math.random() - 0.5) * WORLD_SIZE_X;
             const z = (Math.random() - 0.5) * WORLD_SIZE_Z;
             const potentialPos = new THREE.Vector3(x, 0, z);
+            const checkBuffer = TOTAL_ROAD_WIDTH / 2 + 2.0;
 
-            // Check if the position is off the road AND sidewalks
-            // Use a buffer slightly larger than half the total road width
-            const checkBuffer = TOTAL_ROAD_WIDTH / 2 + 2.0; // House base should be > 2 units from road center line
             if (!isPositionOnRoad(potentialPos, checkBuffer)) {
                  const rotation = Math.random() * Math.PI * 2;
                  const newHouse = createHouse(potentialPos, rotation);
-                 // Check collision with existing houses before adding
                  let houseCollision = false;
                  for(const existingHouse of houses) {
-                     // Check if bounding boxes exist before intersecting
                      if (newHouse.userData.boundingBox && existingHouse.userData.boundingBox &&
                          newHouse.userData.boundingBox.intersectsBox(existingHouse.userData.boundingBox)) {
-                         houseCollision = true;
-                         break;
+                         houseCollision = true; break;
                      }
                  }
-                 if (!houseCollision) {
-                    houses.push(newHouse);
-                    placed = true;
-                    placedCount++;
-                 } else {
-                     // Optional: remove the temporary house from scene if collision detected
-                     scene.remove(newHouse);
-                 }
+                 if (!houseCollision) { houses.push(newHouse); placed = true; placedCount++; }
+                 else { scene.remove(newHouse); }
             }
         }
     }
@@ -362,107 +409,69 @@ function createTree(position) {
 
     // Trunk
     const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.7, trunkRadius, trunkHeight, 8);
-    // Vary trunk color slightly
     const trunkColor = new THREE.Color(0x8B4513).multiplyScalar(0.8 + Math.random() * 0.4);
     const trunkMat = new THREE.MeshStandardMaterial({ color: trunkColor, roughness: 0.9, metalness: 0.0 });
     const trunkMesh = new THREE.Mesh(trunkGeom, trunkMat);
-    trunkMesh.name = "tree_trunk"; // Name for easy reference
+    trunkMesh.name = "tree_trunk";
     trunkMesh.position.y = trunkHeight / 2;
     trunkMesh.castShadow = true;
     trunkMesh.receiveShadow = true;
     treeGroup.add(trunkMesh);
 
-    // Leaves (Cone shape)
+    // Leaves
     const leavesGeom = new THREE.ConeGeometry(leavesRadius, leavesHeight, 8);
-    // Vary leaves color slightly
     const leavesColor = new THREE.Color(0x228B22).multiplyScalar(0.7 + Math.random() * 0.6);
     const leavesMat = new THREE.MeshStandardMaterial({ color: leavesColor, roughness: 0.9, metalness: 0.0 });
     const leavesMesh = new THREE.Mesh(leavesGeom, leavesMat);
     leavesMesh.position.y = trunkHeight + leavesHeight / 2 * 0.8;
     leavesMesh.castShadow = true;
-    // leavesMesh.receiveShadow = true; // Leaves often don't need to receive shadows
     treeGroup.add(leavesMesh);
 
+    // Position Group
     treeGroup.position.copy(position);
     treeGroup.position.y = 0;
 
-     // Add userData for collision
-    treeGroup.userData = {
-        type: 'tree', // Identify object type
-        // *** Use bounding box of the TRUNK MESH for tighter collision ***
-        boundingBox: new THREE.Box3().setFromObject(trunkMesh)
-    };
-    // Update bounding box after positioning the parent group
-    treeGroup.updateMatrixWorld(true); // Ensure world matrix is updated
-    // Recalculate box based on the trunk mesh's world matrix
-    treeGroup.userData.boundingBox.setFromObject(trunkMesh, true); // Use precise=true if available
-
+    // UserData
+    treeGroup.userData = { type: 'tree', boundingBox: new THREE.Box3().setFromObject(trunkMesh) };
+    treeGroup.updateMatrixWorld(true);
+    treeGroup.userData.boundingBox.setFromObject(trunkMesh, true);
 
     scene.add(treeGroup);
     return treeGroup;
 }
 
-// Creates multiple trees in valid locations (avoids roads+sidewalks, houses, other trees)
+// Creates multiple trees
 function createTrees() {
-    trees = []; // Clear existing
-    console.log(`Attempting to place ${TREE_COUNT} trees...`);
+    // Clear existing objects from scene and array
+    trees.forEach(tree => scene.remove(tree));
+    trees = [];
+
+    console.log(`Attempting to place ${currentGameSettings.treeCount} trees...`);
     let placedCount = 0;
-    for (let i = 0; i < TREE_COUNT; i++) {
+    for (let i = 0; i < currentGameSettings.treeCount; i++) {
          let placed = false;
          let attempts = 0;
          while (!placed && attempts < 30) {
              attempts++;
-             // Place within the defined world area
              const x = (Math.random() - 0.5) * WORLD_SIZE_X;
              const z = (Math.random() - 0.5) * WORLD_SIZE_Z;
              const potentialPos = new THREE.Vector3(x, 0, z);
+             const checkBuffer = TOTAL_ROAD_WIDTH / 2 + 1.0;
 
-             // Check if the position is off road AND sidewalks
-             const checkBuffer = TOTAL_ROAD_WIDTH / 2 + 1.0; // Tree base should be > 1 unit from road center line
              if (!isPositionOnRoad(potentialPos, checkBuffer)) {
                  let tooCloseToHouse = false;
-                 for (const house of houses) {
-                     if (potentialPos.distanceTo(house.position) < 8) { // Min distance from houses (center check)
-                         tooCloseToHouse = true;
-                         break;
-                     }
-                 }
+                 for (const house of houses) { if (potentialPos.distanceTo(house.position) < 8) { tooCloseToHouse = true; break; } }
                  let tooCloseToTree = false;
-                 for (const tree of trees) {
-                     if (potentialPos.distanceTo(tree.position) < 3.0) { // Min distance between trees
-                         tooCloseToTree = true;
-                         break;
-                     }
-                 }
+                 for (const tree of trees) { if (potentialPos.distanceTo(tree.position) < 3.0) { tooCloseToTree = true; break; } }
 
                  if (!tooCloseToHouse && !tooCloseToTree) {
                      const newTree = createTree(potentialPos);
-                     // Check collision with existing houses/trees using tighter box before adding
                      let staticCollision = false;
-                     for(const existingHouse of houses) {
-                         // Check bounding boxes exist
-                         if (newTree.userData.boundingBox && existingHouse.userData.boundingBox &&
-                             newTree.userData.boundingBox.intersectsBox(existingHouse.userData.boundingBox)) {
-                             staticCollision = true; break;
-                         }
-                     }
-                     if (!staticCollision) {
-                         for(const existingTree of trees) {
-                              // Check bounding boxes exist
-                             if (newTree.userData.boundingBox && existingTree.userData.boundingBox &&
-                                 newTree.userData.boundingBox.intersectsBox(existingTree.userData.boundingBox)) {
-                                 staticCollision = true; break;
-                             }
-                         }
-                     }
+                     for(const h of houses) { if (newTree.userData.boundingBox?.intersectsBox(h.userData.boundingBox)) { staticCollision = true; break; } }
+                     if (!staticCollision) { for(const t of trees) { if (newTree.userData.boundingBox?.intersectsBox(t.userData.boundingBox)) { staticCollision = true; break; } } }
 
-                     if (!staticCollision) {
-                        trees.push(newTree);
-                        placed = true;
-                        placedCount++;
-                     } else {
-                         scene.remove(newTree); // Remove temporary tree
-                     }
+                     if (!staticCollision) { trees.push(newTree); placed = true; placedCount++; }
+                     else { scene.remove(newTree); }
                  }
              }
          }
@@ -472,6 +481,12 @@ function createTrees() {
 
 // Creates the player's controllable car (Refined Station Wagon style with SVG logo)
 function createPlayerCar() {
+    // If car already exists (e.g., during restart), remove it first
+    if (playerCar) {
+        scene.remove(playerCar);
+        playerCar = null; // Clear reference
+    }
+
     playerCar = new THREE.Group(); // Use a group
     playerCar.name = "PlayerCarGroup"; // Name the group
 
@@ -483,8 +498,6 @@ function createPlayerCar() {
     const cabinWidth = carWidth * 0.9;
     const cabinLength = carLength * 0.45; // Cabin occupies middle part
     const cabinOffsetZ = -carLength * 0.05; // Move cabin slightly back from true center
-    const rearHeight = 0.9;
-    const rearLength = carLength - (cabinLength + (carLength * 0.5 + cabinOffsetZ)); // Calculate remaining length
 
     const wheelRadius = 0.4;
     const wheelThickness = 0.3;
@@ -542,55 +555,65 @@ function createPlayerCar() {
     });
 
     // --- Volvo Logo SVG Decal ---
-    const svgString = `<svg fill="#ffffff" width="100px" height="100px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg"><title>Volvo icon</title><path d="M11.269 11.225h-.522v-.343h2.072v.343h-.516v1.55h.479c.443 0 .734-.292.734-.69h.342v1.038h-3.11v-.347h.522zm2.533.001h-.515v-.344h2.248v.344h-.544l.758 1.383.749-1.383h-.448v-.344h1.55v.344h-.516l-1.027 1.9-1.21-.001zm5.181-.392c1.041 0 1.6.52 1.6 1.171 0 .66-.527 1.187-1.594 1.187-1.067 0-1.599-.526-1.599-1.187 0-.651.553-1.17 1.593-1.17zM5.781 12.61l.748-1.383h-.447v-.344H7.63v.344h-.515l-1.028 1.9-1.21-.001-1.045-1.899h-.514v-.344h2.247v.344h-.543zm3.237-1.775c1.041 0 1.6.52 1.6 1.171 0 .66-.527 1.187-1.594 1.187-1.067 0-1.599-.526-1.599-1.187 0-.651.552-1.17 1.593-1.17zm-.551 1.157c.007-.432.214-.809.57-.803.356.007.544.39.537.823-.008.407-.176.831-.567.824-.38-.007-.547-.427-.54-.844zm9.965 0c.007-.432.214-.809.57-.803.356.007.544.39.537.823-.008.407-.176.831-.567.824-.38-.007-.547-.427-.54-.844zM3.226 9.83C4.198 5.887 7.757 2.963 12 2.963c4.243 0 7.802 2.924 8.774 6.866zm17.548 4.342c-.972 3.942-4.531 6.866-8.774 6.866-4.243 0-7.802-2.924-8.774-6.866zm.849-9.341l.568-.569c.404.532.769 1.096 1.087 1.688h.449V.283H18.06v.444c.589.317 1.15.68 1.678 1.082l-.569.568A11.947 11.947 0 0 0 12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12c0-2.688-.884-5.17-2.377-7.17Z"/></svg>`;
-    const logoSize = 0.4; // Size of the decal plane
-    const logoPlane = new THREE.PlaneGeometry(logoSize, logoSize);
+    try {
+        const svgString = `<svg fill="#ffffff" width="100px" height="100px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg"><title>Volvo icon</title><path d="M11.269 11.225h-.522v-.343h2.072v.343h-.516v1.55h.479c.443 0 .734-.292.734-.69h.342v1.038h-3.11v-.347h.522zm2.533.001h-.515v-.344h2.248v.344h-.544l.758 1.383.749-1.383h-.448v-.344h1.55v.344h-.516l-1.027 1.9-1.21-.001zm5.181-.392c1.041 0 1.6.52 1.6 1.171 0 .66-.527 1.187-1.594 1.187-1.067 0-1.599-.526-1.599-1.187 0-.651.553-1.17 1.593-1.17zM5.781 12.61l.748-1.383h-.447v-.344H7.63v.344h-.515l-1.028 1.9-1.21-.001-1.045-1.899h-.514v-.344h2.247v.344h-.543zm3.237-1.775c1.041 0 1.6.52 1.6 1.171 0 .66-.527 1.187-1.594 1.187-1.067 0-1.599-.526-1.599-1.187 0-.651.552-1.17 1.593-1.17zm-.551 1.157c.007-.432.214-.809.57-.803.356.007.544.39.537.823-.008.407-.176.831-.567.824-.38-.007-.547-.427-.54-.844zm9.965 0c.007-.432.214-.809.57-.803.356.007.544.39.537.823-.008.407-.176.831-.567.824-.38-.007-.547-.427-.54-.844zM3.226 9.83C4.198 5.887 7.757 2.963 12 2.963c4.243 0 7.802 2.924 8.774 6.866zm17.548 4.342c-.972 3.942-4.531 6.866-8.774 6.866-4.243 0-7.802-2.924-8.774-6.866zm.849-9.341l.568-.569c.404.532.769 1.096 1.087 1.688h.449V.283H18.06v.444c.589.317 1.15.68 1.678 1.082l-.569.568A11.947 11.947 0 0 0 12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12c0-2.688-.884-5.17-2.377-7.17Z"/></svg>`;
+        const logoSize = 0.4; // Size of the decal plane
+        const logoPlane = new THREE.PlaneGeometry(logoSize, logoSize);
 
-    // Create canvas to draw SVG
-    const canvas = document.createElement('canvas');
-    const canvasSize = 128; // Texture resolution
-    canvas.width = canvasSize;
-    canvas.height = canvasSize;
-    const ctx = canvas.getContext('2d');
+        // Create canvas to draw SVG
+        const canvas = document.createElement('canvas');
+        const canvasSize = 128; // Texture resolution
+        canvas.width = canvasSize;
+        canvas.height = canvasSize;
+        const ctx = canvas.getContext('2d');
 
-    const img = new Image();
-    let logoTexture = null; // Declare texture variable outside onload
+        const img = new Image();
+        let logoTexture = null; // Declare texture variable outside onload
 
-    img.onload = function() {
-        // Draw SVG onto canvas when loaded
-        ctx.drawImage(img, 0, 0, canvasSize, canvasSize);
-        // Update the texture if it exists
-        if (logoTexture) {
-            logoTexture.needsUpdate = true;
-        }
-    };
-    // Use base64 encoding for the SVG data URL
-    img.onerror = function() { console.error("Failed to load SVG image for logo."); }; // Add error handling
-    img.src = 'data:image/svg+xml;base64,' + btoa(svgString);
+        img.onload = function() {
+            // Draw SVG onto canvas when loaded
+            ctx.drawImage(img, 0, 0, canvasSize, canvasSize);
+            // Update the texture if it exists
+            if (logoTexture) {
+                logoTexture.needsUpdate = true;
+            }
+        };
+        // Use base64 encoding for the SVG data URL
+        img.onerror = function() { console.error("Failed to load SVG image for logo."); }; // Add error handling
+        img.src = 'data:image/svg+xml;base64,' + btoa(svgString);
 
-    // Create texture from canvas
-    logoTexture = new THREE.CanvasTexture(canvas);
-    logoTexture.colorSpace = THREE.SRGBColorSpace; // Ensure correct colorspace
+        // Create texture from canvas
+        logoTexture = new THREE.CanvasTexture(canvas);
+        logoTexture.colorSpace = THREE.SRGBColorSpace; // Ensure correct colorspace
 
-    const logoMaterial = new THREE.MeshStandardMaterial({
-        map: logoTexture,
-        transparent: true, // Use transparency
-        alphaTest: 0.1,    // Adjust alpha test if needed for cleaner edges
-        metalness: 0.1,
-        roughness: 0.6,
-        side: THREE.DoubleSide // Render both sides
-    });
+        const logoMaterial = new THREE.MeshStandardMaterial({
+            map: logoTexture,
+            transparent: true, // Use transparency
+            alphaTest: 0.1,    // Adjust alpha test if needed for cleaner edges
+            metalness: 0.1,
+            roughness: 0.6,
+            side: THREE.DoubleSide // Render both sides
+        });
 
-    const logoDecal = new THREE.Mesh(logoPlane, logoMaterial);
-    // Position slightly in front of the grille mesh
-    logoDecal.position.set(0, grilleHeight / 2, carLength / 2 + 0.02); // Position relative to car origin
-    playerCar.add(logoDecal);
+        const logoDecal = new THREE.Mesh(logoPlane, logoMaterial);
+        // Position slightly in front of the grille mesh
+        logoDecal.position.set(0, grilleHeight / 2, carLength / 2 + 0.02); // Position relative to car origin
+        playerCar.add(logoDecal);
+    } catch (error) {
+        console.error("Error creating SVG logo:", error);
+        // Fallback: add a simple colored square if SVG fails
+        const logoGeom = new THREE.BoxGeometry(0.3, 0.3, 0.1);
+        const fallbackLogoMat = new THREE.MeshBasicMaterial({ color: 0x4444ff });
+        const logoMesh = new THREE.Mesh(logoGeom, fallbackLogoMat);
+        logoMesh.position.set(0, grilleHeight / 2, carLength / 2 + 0.01);
+        playerCar.add(logoMesh);
+    }
     // --- End Volvo Logo SVG Decal ---
 
 
-    // Set position and rotation for the whole group
-    playerCar.position.set(0, 0.5, BLOCK_SIZE); // Start on road at X=0, Z=BLOCK_SIZE
-    playerCar.rotation.y = 0; // Face South initially
+    // Set position and rotation for the whole group (Initial position for intro)
+    playerCar.position.set(0, 1, 0); // Center for intro/game over display
+    playerCar.rotation.y = Math.PI * 0.8; // Start rotated slightly
 
     // Enable shadows for all parts
     playerCar.traverse(child => {
@@ -604,17 +627,22 @@ function createPlayerCar() {
 
     // Bounding Box for the Group
     playerCarBoundingBox = new THREE.Box3().setFromObject(playerCar);
-    console.log("Player car created at:", playerCar.position);
+    console.log("Player car created.");
 }
 
 
 // Creates destructible objects (bins and mailboxes) along road edges (on sidewalks)
 function createDestructibles() {
-    destructibles = []; // Clear existing
-    console.log(`Attempting to place ${NUM_DESTRUCTIBLES} destructibles (Trash Cans & Mailboxes)...`);
+    // Clear existing objects from scene and array
+    destructibles.forEach(obj => { if (obj.parent) obj.parent.remove(obj); });
+    destructibles = [];
+    trashCansRemaining = 0; // Reset counter
+    mailboxesRemaining = 0; // Reset counter
+
+    console.log(`Attempting to place ${currentGameSettings.numDestructibles} destructibles...`); // Use setting
     let placedCount = 0;
 
-    for (let i = 0; i < NUM_DESTRUCTIBLES; i++) {
+    for (let i = 0; i < currentGameSettings.numDestructibles; i++) { // Use setting
         let placed = false;
         let attempts = 0;
         while (!placed && attempts < 50) {
@@ -663,10 +691,16 @@ function createDestructibles() {
                      obj.position.copy(potentialPos);
                      obj.position.y = 1; // Center trash can vertically
                      obj.userData.type = 'trashcan';
+                     trashCansRemaining++; // Increment counter
                  } else { // 40% chance of mailbox
                      obj = new THREE.Group(); // Mailbox is a group
                      const post = new THREE.Mesh(mailboxPostGeometry, mailboxPostMaterial);
-                     const body = new THREE.Mesh(mailboxBodyGeometry, mailboxBodyMaterial);
+                     const body = new THREE.Mesh(mailboxBodyGeometry.clone(), mailboxBodyMaterial.clone()); // Clone geometry and material
+
+                     // Assign random house color to mailbox body
+                     const randomColorPair = houseColorPairs[Math.floor(Math.random() * houseColorPairs.length)];
+                     body.material.color.set(randomColorPair.house);
+
                      post.position.y = 1.2 / 2; // Post base at y=0
                      body.position.y = 1.2 + (0.5 / 2); // Body sits on top of post
                      body.position.z = -0.1; // Slight offset if needed
@@ -674,6 +708,7 @@ function createDestructibles() {
                      obj.add(body);
                      obj.position.copy(potentialPos); // Position the group
                      obj.userData.type = 'mailbox';
+                     mailboxesRemaining++; // Increment counter
                  }
 
                  obj.castShadow = true;
@@ -704,12 +739,17 @@ function createDestructibles() {
             }
         }
     }
-    console.log(`Successfully placed ${placedCount} destructibles.`);
+    updateCountersDisplay(); // Update UI after creating all objects
+    console.log(`Successfully placed ${placedCount} destructibles (${trashCansRemaining} trash, ${mailboxesRemaining} mailboxes).`);
 }
 
 
 // Creates AI traffic cars (Groups with wheels) on road segments
 function createTraffic() {
+    // Clear existing objects from scene and array
+    trafficCars.forEach(car => { if (car.parent) car.parent.remove(car); });
+    trafficCars = [];
+
     // AI Car dimensions
     const aiBodyWidth = 2.0;
     const aiBodyHeight = 0.7;
@@ -723,17 +763,17 @@ function createTraffic() {
     const aiWheelY = aiWheelRadius * 0.8;
 
     const trafficCarColors = [0x0000ff, 0xffff00, 0x00ffff, 0xff00ff, 0xffffff, 0xaaaaaa, 0x444444, 0xcc4444, 0x44cc44];
-    trafficCars = [];
 
-    console.log(`Attempting to place ${NUM_TRAFFIC_CARS} traffic cars...`);
+    console.log(`Attempting to place ${currentGameSettings.numTrafficCars} traffic cars...`); // Use setting
     let carIndex = 0;
     // Distribute cars somewhat evenly across segments
-    const carsPerSegment = Math.max(1, Math.floor(NUM_TRAFFIC_CARS / roadSegments.length));
+    const numSegments = roadSegments.length > 0 ? roadSegments.length : 1; // Avoid division by zero
+    const carsPerSegment = Math.max(1, Math.floor(currentGameSettings.numTrafficCars / numSegments)); // Use setting
 
-    for (let i = 0; i < roadSegments.length && carIndex < NUM_TRAFFIC_CARS; i++) {
+    for (let i = 0; i < roadSegments.length && carIndex < currentGameSettings.numTrafficCars; i++) { // Use setting
         const segment = roadSegments[i]; // Get segment data
         // Add a calculated number of cars to this segment
-        for (let j = 0; j < carsPerSegment && carIndex < NUM_TRAFFIC_CARS; j++) {
+        for (let j = 0; j < carsPerSegment && carIndex < currentGameSettings.numTrafficCars; j++) { // Use setting
              const carColor = trafficCarColors[carIndex % trafficCarColors.length];
              // Use slightly varied material properties for AI cars
              const bodyMaterial = new THREE.MeshStandardMaterial({
@@ -814,7 +854,7 @@ function createTraffic() {
             carGroup.userData = {
                 segmentIndex: i,
                 direction: direction, // Store the determined direction
-                speed: TRAFFIC_SPEED * (0.8 + Math.random() * 0.4),
+                speed: currentGameSettings.trafficSpeed * (0.8 + Math.random() * 0.4), // Use setting
                 collisionCooldown: 0,
                 boundingBox: new THREE.Box3().setFromObject(carGroup) // Bounding box for the whole car group
             };
@@ -829,7 +869,7 @@ function createTraffic() {
         }
     }
      // Add remaining cars randomly if budget not met (using the same corrected lane logic)
-     while (carIndex < NUM_TRAFFIC_CARS && roadSegments.length > 0) {
+     while (carIndex < currentGameSettings.numTrafficCars && roadSegments.length > 0) { // Use setting
          const segmentIndex = Math.floor(Math.random() * roadSegments.length);
          const segment = roadSegments[segmentIndex];
          const carColor = trafficCarColors[carIndex % trafficCarColors.length];
@@ -862,7 +902,7 @@ function createTraffic() {
          // Shadows
          carGroup.traverse(child => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
          // UserData
-         carGroup.userData = { segmentIndex: segmentIndex, direction: direction, speed: TRAFFIC_SPEED * (0.8 + Math.random() * 0.4), collisionCooldown: 0, boundingBox: new THREE.Box3().setFromObject(carGroup) };
+         carGroup.userData = { segmentIndex: segmentIndex, direction: direction, speed: currentGameSettings.trafficSpeed * (0.8 + Math.random() * 0.4), collisionCooldown: 0, boundingBox: new THREE.Box3().setFromObject(carGroup) }; // Use setting
          carGroup.updateMatrixWorld(true); carGroup.userData.boundingBox.setFromObject(carGroup);
 
          scene.add(carGroup); trafficCars.push(carGroup); carIndex++;
@@ -873,17 +913,32 @@ function createTraffic() {
 
 // --- Event Handling ---
 function setupEventListeners() {
+    // Keyboard listeners
     window.addEventListener('keydown', (event) => {
         keys[event.code] = true;
-        if (gameState === 'gameOver' && event.code === 'Enter') {
-            restartGame();
+        // Allow restart via Enter only when game is over or won (start screen is shown)
+        if ((gameState === 'gameOver' || gameState === 'win') && event.code === 'Enter') {
+            startGame(); // Reuse start logic
         }
     });
     window.addEventListener('keyup', (event) => {
         keys[event.code] = false;
     });
+
+    // Resize listener
     window.addEventListener('resize', onWindowResize, false);
-    restartButton.addEventListener('click', restartGame);
+
+    // Game Over restart button (Now the main start button)
+    // restartButton.addEventListener('click', restartGame); // Remove old listener if any
+
+    // --- Start Screen Button ---
+    startButton.addEventListener('click', startGame);
+
+    // --- Settings Modal Listeners ---
+    settingsButton.addEventListener('click', openSettingsModal);
+    settingsCancelButton.addEventListener('click', closeSettingsModal);
+    settingsSaveButton.addEventListener('click', saveSettingsAndRestart);
+
     console.log("Event listeners set up.");
 }
 
@@ -892,6 +947,57 @@ function onWindowResize() {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
+
+// --- Settings Modal Functions ---
+function openSettingsModal() {
+    // Populate inputs with current settings
+    inputPlayerSpeed.value = currentGameSettings.playerSpeed;
+    inputTurnSpeed.value = currentGameSettings.turnSpeed;
+    inputTrafficSpeed.value = currentGameSettings.trafficSpeed;
+    inputNumTraffic.value = currentGameSettings.numTrafficCars;
+    inputNumDestructibles.value = currentGameSettings.numDestructibles;
+    inputNumHouses.value = currentGameSettings.houseCount;
+    inputNumTrees.value = currentGameSettings.treeCount;
+
+    // Show the modal
+    settingsModal.style.display = 'block';
+    // Optional: Pause game loop while settings are open?
+    // gameState = 'paused'; // Needs handling in animate loop
+}
+
+function closeSettingsModal() {
+    settingsModal.style.display = 'none';
+    // Optional: Resume game if paused
+    // if (gameState === 'paused') gameState = 'running';
+}
+
+function saveSettingsAndRestart() {
+    console.log("Saving settings and restarting...");
+    // Read values, parse as numbers, provide defaults if invalid
+    const newPlayerSpeed = parseFloat(inputPlayerSpeed.value) || DEFAULT_PLAYER_SPEED;
+    const newTurnSpeed = parseFloat(inputTurnSpeed.value) || DEFAULT_TURN_SPEED;
+    const newTrafficSpeed = parseFloat(inputTrafficSpeed.value) || DEFAULT_TRAFFIC_SPEED;
+    const newNumTraffic = parseInt(inputNumTraffic.value, 10);
+    const newNumDestructibles = parseInt(inputNumDestructibles.value, 10);
+    const newNumHouses = parseInt(inputNumHouses.value, 10);
+    const newNumTrees = parseInt(inputNumTrees.value, 10);
+
+    // Update current settings object (with validation/clamping if desired)
+    currentGameSettings.playerSpeed = Math.max(0.1, newPlayerSpeed); // Min speed 0.1
+    currentGameSettings.turnSpeed = Math.max(0.01, newTurnSpeed); // Min turn 0.01
+    currentGameSettings.trafficSpeed = Math.max(0, newTrafficSpeed); // Min speed 0
+    currentGameSettings.numTrafficCars = isNaN(newNumTraffic) || newNumTraffic < 0 ? DEFAULT_NUM_TRAFFIC_CARS : newNumTraffic;
+    currentGameSettings.numDestructibles = isNaN(newNumDestructibles) || newNumDestructibles < 0 ? DEFAULT_NUM_DESTRUCTIBLES : newNumDestructibles;
+    currentGameSettings.houseCount = isNaN(newNumHouses) || newNumHouses < 0 ? DEFAULT_HOUSE_COUNT : newNumHouses;
+    currentGameSettings.treeCount = isNaN(newNumTrees) || newNumTrees < 0 ? DEFAULT_TREE_COUNT : newNumTrees;
+
+
+    closeSettingsModal();
+    // Restart game fully to apply new counts etc.
+    fullGameReset();
+    startGame(); // Go back to intro screen after reset
+}
+
 
 // --- Helper Functions ---
 
@@ -920,6 +1026,7 @@ function isPositionOnRoad(position, buffer = 0) {
 
 // --- Game Logic Update ---
 function updateGameLogic(deltaTime) {
+    // This function only runs when gameState is 'running'
     if (gameState !== 'running') return;
 
     handlePlayerMovement(deltaTime); // Now includes static collision response
@@ -927,8 +1034,9 @@ function updateGameLogic(deltaTime) {
     handleDestructibleMovement(deltaTime);
     checkCollisions(); // Checks dynamic collisions (traffic, destructibles)
     checkOffRoad(deltaTime); // Uses total road bounds + buffer
-    updateCamera();
+    updateCamera(); // Only update camera to follow car in running state
     updateScoreDisplay();
+    updateCountersDisplay(); // Update counters display
 
     // Check score AFTER penalties/bonuses are applied in checkCollisions/checkOffRoad
     if (score <= 0 && gameState === 'running') { // Ensure game over only triggers once if score hits 0 or less
@@ -944,10 +1052,11 @@ function handlePlayerMovement(deltaTime) {
     let moveDistance = 0;
     let rotationAmount = 0;
 
-    if (keys['ArrowUp'] || keys['KeyW']) { moveDistance = PLAYER_SPEED * 100 * deltaTime; }
-    if (keys['ArrowDown'] || keys['KeyS']) { moveDistance = -PLAYER_SPEED * 80 * deltaTime; }
-    if (keys['ArrowLeft'] || keys['KeyA']) { rotationAmount = TURN_SPEED; }
-    if (keys['ArrowRight'] || keys['KeyD']) { rotationAmount = -TURN_SPEED; }
+    // Use current settings for speed
+    if (keys['ArrowUp'] || keys['KeyW']) { moveDistance = currentGameSettings.playerSpeed * 100 * deltaTime; }
+    if (keys['ArrowDown'] || keys['KeyS']) { moveDistance = -currentGameSettings.playerSpeed * 80 * deltaTime; } // Use setting
+    if (keys['ArrowLeft'] || keys['KeyA']) { rotationAmount = currentGameSettings.turnSpeed; } // Use setting
+    if (keys['ArrowRight'] || keys['KeyD']) { rotationAmount = -currentGameSettings.turnSpeed; } // Use setting
 
     playerCar.rotation.y += rotationAmount;
 
@@ -967,12 +1076,11 @@ function handlePlayerMovement(deltaTime) {
         // Check if obstacle and its bounding box exist and are valid
         // Use the tighter bounding box stored in userData (base/trunk)
         if (obstacle.userData && obstacle.userData.boundingBox && !obstacle.userData.boundingBox.isEmpty()) {
-            // Update obstacle bounding box based on its current world matrix before check
-            // This is important if obstacles could potentially move (though they don't here)
-            // obstacle.updateMatrixWorld(true); // Ensure world matrix is up-to-date
+            // Update obstacle bounding box based on its current world matrix before check?
+            // For truly static objects, this isn't strictly necessary after initial creation.
+            // obstacle.updateMatrixWorld(true);
             // obstacle.userData.boundingBox.setFromObject(obstacle.getObjectByName(obstacle.userData.type === 'house' ? 'house_base' : 'tree_trunk'), true);
 
-            // Simpler: Assume static obstacle bounding boxes calculated at creation are correct in world space
             if (playerCarBoundingBox.intersectsBox(obstacle.userData.boundingBox)) {
                 // console.log("Hit static object:", obstacle.userData.type);
                 collisionOccurred = true;
@@ -997,6 +1105,7 @@ function handleTrafficMovement(deltaTime) {
         if (!roadSegments[car.userData.segmentIndex]) return;
 
         const segment = roadSegments[car.userData.segmentIndex]; // Get segment data
+        // Use current traffic speed setting from userData
         const moveStep = car.userData.direction.clone().multiplyScalar(car.userData.speed * 100 * deltaTime);
         car.position.add(moveStep); // Move the group
 
@@ -1061,40 +1170,44 @@ function handleDestructibleMovement(deltaTime) {
 function checkCollisions() {
     // Player vs Destructibles (Trash Cans / Mailboxes)
     destructibles.forEach(obj => {
-        // Check if object exists, is active, not flying, visible, and intersects
-        // Ensure bounding box is updated if object is animated (though these aren't)
-        if (obj && obj.userData && obj.userData.boundingBox && !obj.userData.boundingBox.isEmpty()) { // Add checks for userData and boundingBox validity
-             // Bounding box for destructibles is calculated once at creation and should be okay unless they animate when not flying
-             // obj.userData.boundingBox.setFromObject(obj); // Recalculate if needed
+        if (obj && obj.userData && obj.userData.boundingBox && !obj.userData.boundingBox.isEmpty()) {
             if (obj.userData.isActive && !obj.userData.isFlying && obj.visible && playerCarBoundingBox.intersectsBox(obj.userData.boundingBox)) {
-                // console.log("Hit Destructible:", obj.userData.type);
-                score += SCORE_HIT_OBJECT; // Award points
-                flashScore(false); // Flash score display (green/default)
-                obj.userData.isActive = false; // Deactivate to prevent multiple hits
-                obj.userData.isFlying = true;  // Start flying animation
+                score += currentGameSettings.scoreHitObject; // Use setting
+                flashScore(false);
+                obj.userData.isActive = false;
+                obj.userData.isFlying = true;
+
+                // Decrement appropriate counter
+                if (obj.userData.type === 'trashcan') {
+                    trashCansRemaining--;
+                    console.log("Trash cans remaining:", trashCansRemaining); // Debug log
+                } else if (obj.userData.type === 'mailbox') {
+                    mailboxesRemaining--;
+                }
+                updateCountersDisplay(); // Update UI
+
+                // Check for win condition (only after hitting a trash can)
+                if (obj.userData.type === 'trashcan' && trashCansRemaining <= 0) {
+                    triggerWin();
+                }
 
                 // Calculate fly-away physics properties
                 const flyDir = new THREE.Vector3().subVectors(obj.position, playerCar.position).normalize();
-                flyDir.y = 1.0 + Math.random() * 0.5; // Add upward component
-                obj.userData.flyVelocity.copy(flyDir).multiplyScalar(15 + Math.random() * 10); // Set velocity
+                flyDir.y = 1.0 + Math.random() * 0.5;
+                obj.userData.flyVelocity.copy(flyDir).multiplyScalar(15 + Math.random() * 10);
             }
         }
     });
 
     // Player vs Traffic
-    trafficCars.forEach(car => { // car is a Group
-        // Check cooldown and intersection using the car group's bounding box
+    trafficCars.forEach(car => {
         if (car.userData.collisionCooldown <= 0 && playerCarBoundingBox.intersectsBox(car.userData.boundingBox)) {
-            // console.log("Hit Traffic!");
-            score += SCORE_PENALTY_TRAFFIC; // Apply penalty
-            car.userData.collisionCooldown = 1.0; // Start cooldown
-            flashScore(true); // Flash score display (red)
-            triggerScreenShake(); // *** Trigger screen shake on collision ***
+            score += currentGameSettings.scorePenaltyTraffic; // Use setting
+            car.userData.collisionCooldown = 1.0;
+            flashScore(true);
+            triggerScreenShake();
         }
     });
-
-    // Note: Static object collision (player vs house/tree) is now handled
-    // directly within handlePlayerMovement for immediate response.
 }
 
 // Checks if the player is driving off the defined road network (including sidewalks)
@@ -1102,18 +1215,20 @@ function checkOffRoad(deltaTime) {
     // Use a positive buffer to be more lenient near edges/intersections
     const offRoadBuffer = 1.0; // Allow center to be this far outside the strict TOTAL bounds
     if (!isPositionOnRoad(playerCar.position, offRoadBuffer)) {
-        const penalty = SCORE_PENALTY_OFFROAD_PER_SEC * deltaTime;
+        const penalty = currentGameSettings.scorePenaltyOffroadPerSec * deltaTime; // Use setting
         score += penalty;
         // Only flash if score actually decreased (penalty is negative)
         if (penalty < 0) {
             flashScore(true);
         }
-        // console.log("Off road! Score:", score);
     }
 }
 
 // Updates the camera position and look-at target to follow the player car
 function updateCamera() {
+    // Only update camera to follow car if game is running
+    if (gameState !== 'running' || !playerCar) return;
+
     const cameraOffset = new THREE.Vector3(0, 6, 12);
     const offsetRotated = cameraOffset.clone().applyQuaternion(playerCar.quaternion);
     const cameraTargetPosition = playerCar.position.clone().add(offsetRotated);
@@ -1134,6 +1249,17 @@ function updateScoreDisplay() {
     scoreDisplay.innerText = `Score: ${Math.max(0, Math.floor(score))}`;
 }
 
+// Update counter display
+function updateCountersDisplay() {
+    if (trashCounterDisplay) {
+        trashCounterDisplay.innerText = `Trash Cans: ${trashCansRemaining}`;
+    }
+    if (mailboxCounterDisplay) {
+        mailboxCounterDisplay.innerText = `Mailboxes: ${mailboxesRemaining}`;
+    }
+}
+
+
 function flashScore(isPenalty) {
     // Use red flash for penalties, could add a green/neutral flash otherwise
     if (isPenalty) {
@@ -1146,7 +1272,7 @@ function flashScore(isPenalty) {
 }
 
 function triggerScreenShake() {
-    const shakeIntensity = 1;
+    const shakeIntensity = 10;
     const shakeDuration = 120;
     const startTime = Date.now();
     const originalLookAt = new THREE.Vector3();
@@ -1170,64 +1296,163 @@ function triggerScreenShake() {
 
 
 // --- Game State Management ---
+
+// Function to start the actual game (called by button)
+function startGame() {
+    console.log("Starting game...");
+    startScreen.style.display = 'none'; // Hide start screen
+    uiContainer.style.display = 'flex'; // Show game UI
+
+    // Perform a full reset to create game elements based on current settings
+    fullGameReset(); // Calls create functions
+
+    // Set initial game state AFTER reset
+    gameState = 'running';
+    score = 100; // Start score for a new game
+    keys = {}; // Clear any keys pressed during intro
+    updateScoreDisplay(); // Show initial score
+    updateCountersDisplay(); // Show initial counters
+
+    // Set camera for gameplay
+    setupGameCamera();
+}
+
 function triggerGameOver() {
-    if (gameState === 'gameOver') return; // Prevent multiple triggers
+    if (gameState === 'gameOver' || gameState === 'win') return; // Prevent triggering if already over/won
     console.log("Game Over!");
     gameState = 'gameOver';
-    gameOverDisplay.style.display = 'block'; // Show UI
+
+    // Show start/game over screen
+    startScreen.style.display = 'flex';
+    // Update text for game over
+    startTitle.innerText = 'Game Over!';
+    startButton.innerText = 'Crash Again?';
+
+    // Hide game UI
+    uiContainer.style.display = 'none';
+
+    // Position car for display
+    if(playerCar) {
+        playerCar.position.set(0, 1, 0);
+        playerCar.rotation.y = Math.PI * 0.8; // Rotate slightly
+    }
+    // Position camera for display
+    setupIntroCamera();
 }
 
-function restartGame() {
-    console.log("Restarting Game...");
-    score = 100; // Reset score to 100
-    gameState = 'running';
-    gameOverDisplay.style.display = 'none';
-    keys = {};
+// --- Trigger Win State ---
+function triggerWin() {
+    if (gameState === 'win' || gameState === 'gameOver') return; // Prevent triggering if already won/over
+    console.log("You Win!");
+    gameState = 'win';
 
-    // Reset Player Position
-    playerCar.position.set(0, 0.5, BLOCK_SIZE); // Reset to starting pos on road
-    playerCar.rotation.y = 0; // Reset rotation
-    playerCar.updateMatrixWorld();
+    // Show start/win screen
+    startScreen.style.display = 'flex';
+    // Update text for win
+    startTitle.innerText = 'You Win!';
+    startButton.innerText = 'Play Again?';
 
-    // Remove old dynamic objects
-    destructibles.forEach(obj => { if (obj.parent) obj.parent.remove(obj); });
+    // Hide game UI
+    uiContainer.style.display = 'none';
+
+    // Position car for display
+    if(playerCar) {
+        playerCar.position.set(0, 1, 0);
+        playerCar.rotation.y = Math.PI * 0.8; // Rotate slightly
+    }
+    // Position camera for display
+    setupIntroCamera();
+}
+
+
+// Renamed restartGame to fullGameReset for clarity when settings change
+function fullGameReset() {
+    console.log("Performing full game reset...");
+
+    // Reset counters (will be repopulated by createDestructibles)
+    trashCansRemaining = 0;
+    mailboxesRemaining = 0;
+
+    // Remove ALL generated objects from the scene
+    // Dispose of geometries/materials if necessary (optional)
+
+    // Remove road segments
+    roadSegments.forEach(segment => scene.remove(segment.group));
+    roadSegments = [];
+
+    // Remove houses
+    houses.forEach(house => scene.remove(house));
+    houses = [];
+
+    // Remove trees
+    trees.forEach(tree => scene.remove(tree));
+    trees = [];
+
+    // Remove destructibles
+    destructibles.forEach(obj => scene.remove(obj));
     destructibles = [];
-    trafficCars.forEach(car => { if (car.parent) car.parent.remove(car); });
+
+    // Remove traffic cars
+    trafficCars.forEach(car => scene.remove(car));
     trafficCars = [];
 
-    // --- IMPORTANT: Also remove static objects if they are added directly to scene ---
-    // If houses/trees arrays hold references to objects added to scene, remove them too before recreating
-    // houses.forEach(house => { if (house.parent) house.parent.remove(house); });
-    // trees.forEach(tree => { if (tree.parent) tree.parent.remove(tree); });
-    // --- Then clear the arrays ---
-    // houses = [];
-    // trees = [];
-    // --- And recreate them ---
-    // createHouses(); // If static objects need reset/randomization
-    // createTrees();
+    // Remove player car (it will be recreated)
+    if (playerCar) scene.remove(playerCar);
+    playerCar = null; // Clear reference
 
-    // Recreate dynamic elements
-    createDestructibles();
-    createTraffic();
+    // Recreate everything based on potentially new settings
+    // Ground is usually static, but recreate if needed
+    // if (ground) scene.remove(ground); createGround();
 
-    // Reset Camera
-    updateCamera();
+    createRoadNetwork(); // Uses constants, assumed not changed by user
+    createHouses();      // Uses currentGameSettings.houseCount
+    createTrees();       // Uses currentGameSettings.treeCount
+    createPlayerCar();   // Recreates player car
+    createDestructibles(); // Uses currentGameSettings.numDestructibles & updates counters
+    createTraffic();     // Uses currentGameSettings.numTrafficCars & trafficSpeed
 
-    updateScoreDisplay();
-    console.log("Game Restarted.");
+    console.log("Full reset complete.");
 }
+
+// Standard restart (e.g., after game over, no settings changed)
+// Kept separate in case we want different behavior later, but currently calls fullGameReset
+function restartGame() {
+    console.log("Restarting game (standard)...");
+    // For now, a standard restart does the same as a full reset via startGame
+    // to ensure consistency, especially if game state got weird.
+    // If performance becomes an issue, optimize this to only reset dynamic elements.
+    startGame(); // startGame now handles the reset and state changes
+}
+
 
 // --- Animation Loop ---
 function animate() {
     requestAnimationFrame(animate);
     const deltaTime = Math.min(clock.getDelta(), 0.1); // Clamp delta time
 
-    if (gameState === 'running') {
-        updateGameLogic(deltaTime);
+    // Handle logic based on game state
+    switch (gameState) {
+        case 'intro':
+        case 'gameOver':
+        case 'win':
+            // Rotate the player car for display
+            if (playerCar) {
+                playerCar.rotation.y += 0.005; // Slow rotation
+            }
+            // Ensure intro camera is set (might be needed if coming from game over/win)
+            // setupIntroCamera(); // Usually not needed every frame unless camera moves
+            break;
+        case 'running':
+            updateGameLogic(deltaTime); // Update game physics, collisions, etc.
+            break;
+        // case 'paused': // Example if pause state is added
+        //     // Do nothing or only render
+        //     break;
     }
-    // Always render, even if game over, to show final state
+
+    // Always render the scene
     renderer.render(scene, camera);
 }
 
 // --- Start the game ---
-init();
+init(); // Initialize and show intro screen
